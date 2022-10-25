@@ -8,7 +8,7 @@
 /// @param {real}		uuid A unique code used to identify protocol, and verify connection, and packets.
 /// @param {real}		callstackAmount The maximum depth of the callstack that is shown upon error.
 /// Feather disable all
-function bgProtoBuild(__bg_code = 0xAE1B, __bg_log_callstack = 1) constructor
+function bgProtoBuild(__bg_code = 0xAE1B, __bg_log_callstack = 1) : bgLogger() constructor
 {
 	/*
 	All accessiable variables, and methods are abbrivated with bg
@@ -25,6 +25,7 @@ function bgProtoBuild(__bg_code = 0xAE1B, __bg_log_callstack = 1) constructor
 	bg_size						= 0;
 	_bg_log_callstack			= __bg_log_callstack;
 	_bg_write_buffer			= buffer_create(1, buffer_grow, 1);
+	_bg_read_buffers 			= array_create(65535, undefined);
 	
 	/*
 	Values from 65518-65530 in respective order are reserved 
@@ -32,6 +33,7 @@ function bgProtoBuild(__bg_code = 0xAE1B, __bg_log_callstack = 1) constructor
 	use bgText or bgBuffer to convert it. bgtext is capped at a
 	65535 length, and bgBuffer 4294967295. Beware of mtu.
 	*/
+	#macro bgWriteBuffer		_bg_write_buffer
 	#macro bgBool				0xFFEE
 	#macro bgU8					0xFFEF
 	#macro bgS8					0xFFF0
@@ -48,8 +50,8 @@ function bgProtoBuild(__bg_code = 0xAE1B, __bg_log_callstack = 1) constructor
 	
 	/// @function				bgMsgCreate(msgName, callback)
 	/// @description			Creates a new proto message with an optional callback. Returns the protobuild interface thus can be chained.
-	/// @param   {string}		msgName	- Proto message name.
-	/// @param   {Function}		*callback	- Function of callback handler to trigger when recieving this message.
+	/// @param   {string}		msgName		Proto message name.
+	/// @param   {Function}		*callback	Function of callback handler to trigger when recieving this message.
 	static bgMsgCreate			= function(__bg_msg_name, __bg_callback = noone)
 	{
 		if(argument_count < 1)
@@ -78,7 +80,7 @@ function bgProtoBuild(__bg_code = 0xAE1B, __bg_log_callstack = 1) constructor
 	
 	/// @function				bgMsgSetCurrent(msgName)
 	/// @description			Sets the current proto message context. Useful for when chaining. Returns the protobuild interface thus can be chained.
-	/// @param   {string}		msgName	- Proto message name.
+	/// @param   {string}		msgName		Proto message name.
 	static bgMsgSetCurrent		= function(__bg_msg_name)
 	{
 		bg_msg_current = __bg_msg_name;
@@ -87,9 +89,9 @@ function bgProtoBuild(__bg_code = 0xAE1B, __bg_log_callstack = 1) constructor
 	
 	/// @function				bgMsgAddSpec(valName, valType, valDefault)
 	/// @description			Adds a spec/value to the current proto message. Returns the protobuild interface thus can be chained.
-	/// @param   {string}		valName	- Name of the value to be added.
-	/// @param	   {real}		valType	- Type of value. Can be of any number value greater than 0, but less than bgBuffer.
-	/// @param		{any}		valDefault - Default value to be used when encoding from struct.
+	/// @param   {string}		valName		Name of the value to be added.
+	/// @param	   {real}		valType		Type of value. Can be of any number value greater than 0, but less than bgBuffer.
+	/// @param		{any}		valDefault	Default value to be used when encoding from struct.
 	static bgMsgAddSpec			= function(__bg_val_name, __bg_val_type, __bg_val_default)
 	{
 		var __bg_msg = bg_msg_specs[$ bg_msg_current];
@@ -160,9 +162,9 @@ function bgProtoBuild(__bg_code = 0xAE1B, __bg_log_callstack = 1) constructor
 	}
 	
 	/// @function				bgMsgUpdateCallback(msgName, callback)
-	/// @description			Updates the callback of a pre existing proto message. Returns the protobuild interface thus can be chained.
-	/// @param	  {string}		msgName	- Proto message name.
-	/// @param    {Function}	callback	- Function handler to trigger when recieving the proto message.
+	/// @description			Updates the callback of a pre existing proto message, also sets the current message. Returns the protobuild interface thus can be chained.
+	/// @param	  {string}		msgName		Proto message name.
+	/// @param    {Function}	callback	Function handler to trigger when recieving the proto message.
 	static bgMsgUpdateCallback	= function(__bg_msg_name, __bg_callback)
 	{
 		var __bg_msg = bg_msg_specs[$ __bg_msg_name];
@@ -172,12 +174,13 @@ function bgProtoBuild(__bg_code = 0xAE1B, __bg_log_callstack = 1) constructor
 		}
 		__bg_msg.bg_callback     = __bg_callback;
 		__bg_msg.bg_callback_str = script_get_name(__bg_callback);
+		_bg_msg_current			 = __bg_msg_name;
 		return self	
 	}
 	
 	/// @function				bgMsgGet(msgName)
 	/// @description			Returns a previously created proto message.
-	/// @param	  {string}		msgName	- Proto message name. Default: current proto message would be used.
+	/// @param	  {string}		msgName		Proto message name. Default: current proto message would be used.
 	/// @return   {Struct}		Returns the proto message specs.
 	static bgMsgGet				= function(__bg_msg_name = bg_msg_current)
 	{
@@ -268,9 +271,9 @@ function bgProtoBuild(__bg_code = 0xAE1B, __bg_log_callstack = 1) constructor
 	
 	/// @function				bgEncodeValue(bufferid, bgType, value(s))
 	/// @description			Encodes a buffer using proto message. Returns the protobuild interface thus can be chained.
-	/// @param	{Id.Buffer}		bufferid	- Buffer index to write to.
-	/// @param {Constant.bgType} bgType		- Type of bgBuffer to convert to gml buffer_*.
-	/// @param		 {any}		value(s)	- Sequential value(s) to write to buffer.
+	/// @param	{Id.Buffer}		bufferid	Buffer index to write to.
+	/// @param {Constant.bgType} bgType		Type of bgBuffer to convert to gml buffer_*.
+	/// @param		 {any}		value(s)	Sequential value(s) to write to buffer.
 	static bgEncodeValue		= function(__bg_buff, __bg_type, __bg_insert_val)
 	{
 		switch(__bg_type)
@@ -328,9 +331,9 @@ function bgProtoBuild(__bg_code = 0xAE1B, __bg_log_callstack = 1) constructor
 	
 	/// @function				bgEncodeDirect(bufferid, msgName, value)
 	/// @description			Encodes a buffer using data from arguments. MUST provide all values. Will return false if an issue was detected, else protobuild interface thus can be chained.
-	/// @param	{Id.Buffer}		bufferid	- Buffer index to write to. Can enter noone to use built in write buffer.
-	/// @param	  {string}		msgName	- Name of the proto message. Can enter "" to use the current message.
-	/// @param		   {any}	value(s)	- Sequential value(s) in message spec.
+	/// @param	{Id.Buffer}		bufferid	Buffer index to write to. Can enter noone to use built in write buffer.
+	/// @param	  {string}		msgName		Name of the proto message. Can enter "" to use the current message.
+	/// @param		   {any}	value(s)	Sequential value(s) in message spec.
 	static bgEncodeDirect		= function(__bg_buffer, __bg_msg_name, __bg_values)
 	{
 		if(argument_count < 2) bgFatal("Invalid amount of arguments");
@@ -356,9 +359,9 @@ function bgProtoBuild(__bg_code = 0xAE1B, __bg_log_callstack = 1) constructor
 	
 	/// @function				bgEncodeFromStruct(bufferid, msgName, struct)
 	/// @description			Encodes a buffer using data from struct. If key is missing default value will be used. Returns the protobuild interface thus can be chained.
-	/// @param	{Id.Buffer}		bufferid- Buffer index to write to. Can enter noone to use built in write buffer.
-	/// @param	  {string}		msgName	- Name of the proto message. Can enter "" to use the current message.
-	/// @param	  {Struct}		value	- A struct containing the message key and desired value.
+	/// @param	{Id.Buffer}		bufferid	Buffer index to write to. Can enter noone to use built in write buffer.
+	/// @param	  {string}		msgName		Name of the proto message. Can enter "" to use the current message.
+	/// @param	  {Struct}		value		A struct containing the message key and desired value.
 	static bgEncodeFromStruct	= function(__bg_buff, __bg_msg_name, __bg_struct)
 	{
 		if(__bg_buff == noone) __bg_buff		= _bg_write_buffer;
@@ -487,11 +490,17 @@ function bgProtoBuild(__bg_code = 0xAE1B, __bg_log_callstack = 1) constructor
 	
 	/// @function				bgDecodeToStruct(bufferid, size, socketid)
 	/// @description			Decodes a buffer containing protobuild packets and passes struct to callbacks, or return array. 
-	/// @param	{Id.Buffer}		bufferid	- Buffer to decode.
-	/// @param		{real}		*size		- Size of the buffer. If not provided 'buffer_get_size()' will be used.
-	/// @param	<socketid>		*socketid	- Embed a socket id within structs, can be accessed via key 'bg_socket_id'.
-	static bgDecodeToStruct		= function(__bg_read_buffer, __bg_size = buffer_get_size(__bg_read_buffer), __bg_socket_id)
+	/// @param	{Id.DsMap}		async_load	- A ds_map that contains all keys similar to the async_load with network event. 
+	static bgDecodeToStruct		= function(__bg_async_load)
 	{	
+		var
+		__bg_read_buffer	= __bg_async_load[? "buffer"],
+		__bg_size			= __bg_async_load[? "size"],
+		__bg_socket_id		= __bg_async_load[? "id"];
+		if(__bg_size < 4){
+			bgWarn("Invalid packet to small");
+			return [];	
+		}
 		buffer_seek(__bg_read_buffer, buffer_seek_start, 0);
 		var __bg_buffer_array = [];
 		while(buffer_tell(__bg_read_buffer) < __bg_size)
@@ -527,29 +536,19 @@ function bgProtoBuild(__bg_code = 0xAE1B, __bg_log_callstack = 1) constructor
 						__bg_spec_name	= __bg_spec.bg_name;
 		                if(__bg_spec_type == undefined)
 						{
-							bgWarn("Spec type undef for", __bg_spec_name);
-							var __bg_buffer = _bg_read_buffers[__bg_sender_id];
-							if(__bg_buffer != undefined)
-							{
-								buffer_delete(__bg_buffer);
-								_bg_read_buffers[__bg_sender_id] = undefined;
-							}
+							bgWarn("Spec type is undefined for", __bg_spec_name);
 							return __bg_buffer_array;
 						}
 						var __bg_value	= bgDecodeValue(__bg_read_buffer, __bg_spec_type);
 						if(__bg_value != undefined) __bg_send_struct[$ __bg_spec_name] = __bg_value;
 						else{
 							bgWarn("Invalid value size for spec",__bg_spec_name, "in", __bg_msg_id);
-							var __bg_buffer = _bg_read_buffers[__bg_sender_id];
-							if(__bg_buffer != undefined)
-							{
-								buffer_delete(__bg_buffer);
-								_bg_read_buffers[__bg_sender_id] = undefined;
-							}
 							return __bg_buffer_array;
 						}
 		            }
-		            __bg_send_struct.bg_socket_id = __bg_socket_id;
+					__bg_send_struct.bg_async_id	= __bg_socket_id;
+					__bg_send_struct.bg_async_ip	= __bg_async_load[? "ip"];
+					__bg_send_struct.bg_async_port	= __bg_async_load[? "port"];
 		            if(__bg_callback != noone)
 					{
 						if(script_exists(__bg_callback)) script_execute(__bg_callback, __bg_send_struct);
@@ -565,8 +564,130 @@ function bgProtoBuild(__bg_code = 0xAE1B, __bg_log_callstack = 1) constructor
 		return __bg_buffer_array;
 	}
 	
+	/// @function				bgStreamDecodeToStruct(bufferid, size, async_load)
+	/// @description			Decodes a stream buffer containing protobuild packets and passes struct to callbacks. 
+	///							An additional key 'bg_socket_id' containing async_load[? "id"] will be added.
+	///							Alternativly you can simply place within a async network event.
+	/// @param	{Id.DsMap}		async_load	- A ds_map that contains all keys similar to the async_load with network event. 
+	static bgStreamDecodeToStruct = function(__bg_async_load)
+	{
+		var
+		__bg_src_buffer		= __bg_async_load[? "buffer"],
+		__bg_size			= __bg_async_load[? "size"],
+		__bg_sender_id		= __bg_async_load[? "id"],
+		__bg_id				= -1,
+		__bg_buffer_array	= [],
+		__bg_read_buffer	= _bg_read_buffers[__bg_sender_id];
+		
+		if(__bg_read_buffer == undefined) __bg_read_buffer = __bg_src_buffer;
+		else buffer_copy(__bg_src_buffer, 0, __bg_size, __bg_read_buffer, buffer_get_size(__bg_read_buffer));
+		
+		buffer_seek(__bg_read_buffer, buffer_seek_start, 0);
+		
+		while(buffer_get_size(__bg_read_buffer) - buffer_tell(__bg_read_buffer) > 4)
+		{
+		    var 
+			__bg_offset = buffer_tell(__bg_read_buffer),
+		    __bg_header = buffer_read(__bg_read_buffer, buffer_u16);
+			if(__bg_header != bg_code) {
+		        bgWarn("Invalid header", __bg_header);
+				buffer_resize(__bg_read_buffer, __bg_size);
+		        return __bg_buffer_array;
+		    }
+		    
+			var __bg_target_size = buffer_read(__bg_read_buffer, buffer_u16);
+		    
+			if(buffer_get_size(__bg_read_buffer) - buffer_tell(__bg_read_buffer) >= __bg_target_size)
+			{
+		        var
+		        __bg_msg_id				= buffer_read(__bg_read_buffer, buffer_u16),
+		        __bg_msg_struct			= bg_msg_index[__bg_msg_id],
+				__bg_send_struct		= {};
+		        if(__bg_msg_struct != undefined) {
+		            if(__bg_id == -1) __bg_id = __bg_msg_id;
+					var 
+		            __bg_callback		= __bg_msg_struct.bg_callback,
+		            __bg_specs			= __bg_msg_struct.bg_specs;
+		            for(var i = 0, s = __bg_msg_struct.bg_value; i < s; i++) 
+					{
+		                var 
+		                __bg_spec		= __bg_specs[i],
+		                __bg_spec_type  = __bg_spec.bg_type,
+						__bg_spec_name	= __bg_spec.bg_name;
+		                if(__bg_spec_type == undefined){
+							bgWarn("Spec type undef for", __bg_spec_name);
+							var __bg_buffer = _bg_read_buffers[__bg_sender_id];
+							if(__bg_buffer != undefined){
+								buffer_delete(__bg_buffer);
+								_bg_read_buffers[__bg_sender_id] = undefined;
+							}
+							return __bg_buffer_array;
+						}
+						var __bg_value	= bgDecodeValue(__bg_read_buffer, __bg_spec_type);
+						if(__bg_value != undefined) __bg_send_struct[$ __bg_spec_name] = __bg_value;
+						else{
+							bgWarn("Invalid value size for spec",__bg_spec_name, "in", __bg_msg_id);
+							var __bg_buffer = _bg_read_buffers[__bg_sender_id];
+							if(__bg_buffer != undefined){
+								buffer_delete(__bg_buffer);
+								_bg_read_buffers[__bg_sender_id] = undefined;
+							}
+							return __bg_buffer_array;
+						}
+		            }
+		            __bg_send_struct.bg_async_id	= __bg_sender_id;
+					__bg_send_struct.bg_async_ip	= __bg_async_load[? "ip"];
+					__bg_send_struct.bg_async_port	= __bg_async_load[? "port"];
+		            if(__bg_callback != noone){
+						if(script_exists(__bg_callback)) script_execute(__bg_callback, __bg_send_struct);
+						else bgWarn("Callback script", __bg_callback, "within msg", __bg_msg_struct, "doesnt exists");
+						delete __bg_send_struct;
+					}else array_push(__bg_buffer_array, __bg_send_struct);
+		        }else{
+					bgWarn("Message", __bg_msg_id,"not in protocol");
+					var __bg_buffer = _bg_read_buffers[__bg_sender_id];
+					if(__bg_buffer != undefined){
+						buffer_delete(__bg_buffer);
+						_bg_read_buffers[__bg_sender_id] = undefined;
+					}
+					return __bg_buffer_array;
+				}
+				if(buffer_get_size(__bg_read_buffer) - buffer_tell(__bg_read_buffer))
+				{
+					__bg_size	= buffer_get_size(__bg_read_buffer);
+					var 
+		            __bg_length = 4 + __bg_target_size,
+		            __bg_buffer	= buffer_create(__bg_size - __bg_length, buffer_grow, 1);
+		            buffer_copy(__bg_read_buffer, __bg_length, __bg_size - __bg_length, __bg_buffer, 0);
+		            buffer_delete(__bg_read_buffer);
+		            __bg_read_buffer = __bg_buffer;
+					_bg_read_buffers[__bg_sender_id] = __bg_read_buffer;
+				}
+		    }else{
+		        buffer_seek(__bg_read_buffer, buffer_seek_start, __bg_offset);
+		        break;
+		    }
+		}
+		var __bg_remaining = buffer_get_size(__bg_read_buffer) - buffer_tell(__bg_read_buffer);
+		if(__bg_remaining){
+			_bg_read_buffers[__bg_sender_id] = __bg_read_buffer;
+			if(__bg_id != -1) bgWarn("Trailing", __bg_remaining, "(bytes) detected after read from", bg_msg_index[__bg_id].bg_name, "onward");
+		}else{
+			var __bg_buffer = _bg_read_buffers[__bg_sender_id];
+			if(__bg_buffer != undefined){
+				buffer_delete(__bg_buffer);
+				_bg_read_buffers[__bg_sender_id] = undefined;
+			}
+		}
+		return __bg_buffer_array;
+	}
+	
 	/// @function				bgBufferBuild(bufferid, msgName, value, ...)
-	/// @description			Creates a proto buffer with header, and size included. Returns the protobuild interface thus can be chained.
+	/// @description			Creates a proto buffer with header, and size included. Returns the protobuild interface thus can be chained. 2+ Overload
+	///							bgBufferBuild()
+	///							bgBufferBuild(bufferid)
+	///							bgBufferBuild(msgName)
+	///							bgBufferBuild(bufferid, msgName)
 	/// @param {Id.Buffer}		*bufferid	- Buffer index to write to. Can enter noone to use internal write buffer.
 	/// @param   {string}		*msgName	- Name of the message to write to the buffer. Default current message.
 	/// @param	 {string}		*...		- additional messages.
@@ -580,27 +701,37 @@ function bgProtoBuild(__bg_code = 0xAE1B, __bg_log_callstack = 1) constructor
 		switch(__bg_count)
 		{
 			case 0:
-				__bg_buff		= _bg_write_buffer;
+				__bg_buff		= noone;
 				__bg_msg_name	= bg_msg_current;
 				__bg_size += bgMsgGetSize(__bg_msg_name);
 				break;
 			case 1:
-				__bg_buff		= _bg_write_buffer;
-				__bg_msg_name	= argument[0];
+				var __bg_input	= argument[0];
+				if(typeof(__bg_input) == "string"){
+					__bg_buff		= _bg_write_buffer;
+					__bg_msg_name	= __bg_input;
+				}else{
+					__bg_buff		= __bg_input;
+					__bg_msg_name	= bg_msg_current;
+				}
+				__bg_size += bgMsgGetSize(__bg_msg_name);
 				break;
 			case 2:
-				__bg_buff		= argument[0] == noone? _bg_write_buffer: argument[0];
+				__bg_buff		= argument[0];
 				__bg_msg_name	= argument[1] == "" ? bg_msg_current: argument[1];
+				__bg_size += bgMsgGetSize(__bg_msg_name);
 				break;
 			default:
+				__bg_buff		= argument[0];
 				for(var i = 1; i < __bg_count; i++) __bg_size += bgMsgGetSize(argument[i]);		
 		}
-		if(__bg_buff == _bg_write_buffer) buffer_resize(__bg_buff, __bg_size + 4);
+		if(__bg_buff != _bg_write_buffer) buffer_resize(__bg_buff, __bg_size + 4);
+		else if(__bg_buff == noone) __bg_buff = buffer_create(__bg_size + 4, buffer_fixed, 1);
 		buffer_seek(__bg_buff, buffer_seek_start, 0);
 		buffer_write(__bg_buff, buffer_u16, bg_code);
 		buffer_write(__bg_buff, buffer_u16, __bg_size);
 		bg_msg_current = __bg_msg_name;
-		return self;
+		return __bg_buff == _bg_write_buffer? self: __bg_buff;
 	}
 	
 	/// @function				bgBufferGet()
@@ -674,13 +805,28 @@ function bgProtoBuild(__bg_code = 0xAE1B, __bg_log_callstack = 1) constructor
 		delete bg_msg_specs
 		bg_msg_index = undefined;
 		buffer_delete(_bg_write_buffer);
+		for(var i = 0; i < 65535; i++) bgBufferIndexClear(i);
 	}
 	
-	/// @function				bgReset()
-	/// @description			Resets the protobuild construct.
-	static bgReset				= function()
-	{
-		
+	/// @function				bgBufferResetAll()
+	/// @description			Resets all proto buffers. Returns the protobuild interface thus can be chained.
+	static bgBufferResetAll		= function(){
+		buffer_resize(_bg_write_buffer, 1);
+		buffer_seek(_bg_write_buffer, buffer_seek_start, 0);
+		for(var i = 0; i < 65535; i++) bgBufferIndexClear(i);
+		return self;
+	}
+	
+	/// @function				bgBufferIndexClear(index)
+	/// @description			Clears a index read buffer. Should be used during server disconnect event within network event, using the client's socket id. Returns the protobuild interface thus can be chained.
+	/// @param		{real}		index	- Index within array to clear.
+	static bgBufferIndexClear	= function(__bg_index){
+		var b = _bg_read_buffers[__bg_index];
+		if(b != undefined){
+			buffer_delete(b);
+			_bg_read_buffers[__bg_index] = undefined;
+		}
+		return self;
 	}
 	
 	/// @function				bgExport(fname)
