@@ -11,7 +11,7 @@
 function bgProtoBuild(__bg_code = 0xAE1B, __bg_log_callstack = 1) : bgLogger() constructor
 {
 	/*
-	All accessiable variables, and methods are abbrivated with bg
+	All accessiable variables, and methods are prefixed with bg
 	to avoid conflicts with other projects.
 	
 	All variables are to be used for READONLY purposes if wishs to write
