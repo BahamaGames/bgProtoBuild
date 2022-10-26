@@ -9,7 +9,7 @@ var pb = new bgProtoBuild(1234);
 ```
 Next we can create a message and optionally assign a callback function.
 ```
-pb.MsgCreate("player_input", function(data){
+pb.bgMsgCreate("player_input", function(data){
   show_debug_message(data);
 });
 ```
@@ -18,12 +18,12 @@ The first argument is the message name, and the second optional is the callback 
 Now we can assign values to the message. We can utilize the inheritance chaining. 
 ```
 pb
-.MsgAddSpec("left", bgBool, false)
-.MsgAddSpec("right", bgBool, false)
-.MsgAddSpec("up", bgBool, false)
-.MsgAddSpec("down", bgBool, false)
-.MsgAddSpec("mouseX", bgS32, 0)
-.MsgAddSpec("mouseY", bgS32, 0)
+.bgMsgAddSpec("left", bgBool, false)
+.bgMsgAddSpec("right", bgBool, false)
+.bgMsgAddSpec("up", bgBool, false)
+.bgMsgAddSpec("down", bgBool, false)
+.bgMsgAddSpec("mouseX", bgS32, 0)
+.bgMsgAddSpec("mouseY", bgS32, 0)
 ```
 Last used message is used when add values thus we dont need to set it. First argument is the spec name, second being a maacro in comparison to ```buffer_``` data types, and last argument is the default value to assign.
 
