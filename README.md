@@ -51,9 +51,9 @@ network_send_raw(socket, buff, buffer_get_size(buff));
 Once a buffer is obtained with a protocol message we can decode it triggering the callback that was assigned to the message or returning an array of structs.
 For example within the network event ```network_type_data``` we can simply:
 ```
-var results = pb.bgDecodeToStruct(async_load[? "buffer"], async_load[? "size"], async_load[? "id"])
+var results = pb.bgDecodeToStruct(async_load)
 ```
-The above we simply passed in the network buffer, it's size, and socketid to be parse. Since we assigned a callback we'll get this response within the terminal:
+The above we simply passed in the network async_load. Since we assigned a callback we'll get this response within the terminal:
 ```
 {left: 0, right: 1, up: 0, down: 0, bg_socket_id: 1}
 ```
