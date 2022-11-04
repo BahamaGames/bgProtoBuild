@@ -40,8 +40,8 @@ var inputs = {
 var buff = pb
           //Build the "player_inputs" message
           .bgBufferBuild("player_inputs")
-          //Encode it with inputs struct. Since im missing up it will default to false.
-          .bgBufferEncodeFromStruct(noone, "", inputs)
+          //Encode it with inputs struct. Since im missing "up" within the inputs struct it will default to false.
+          .bgBufferEncodeFromStruct(bgWriteBuffer, "", inputs)
           //Get the internal write buffer for use.
           .bgBufferGet()
 network_send_raw(socket, buff, buffer_get_size(buff));
