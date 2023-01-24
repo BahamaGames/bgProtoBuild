@@ -5,7 +5,7 @@ This interface can also be used as an internal for other related 'bg' interfaces
 ### Defining a packet
 First we must create an instance, optionally but suggested assigning a uuid.
 ```
-var pb = new bgProtoBuild(1234);
+var pb = new bgProtoBuild({code: 1234});
 ```
 Next we can create a message and optionally assign a callback function.
 ```
@@ -39,11 +39,11 @@ var inputs = {
 
 var buff = pb
           //Build the "player_inputs" message
-          .bgBufferBuild("player_inputs")
+          .bgBuildBuffer("player_inputs")
           //Encode it with inputs struct. Since im missing "up" within the inputs struct it will default to false.
-          .bgBufferEncodeFromStruct(bgWriteBuffer, "", inputs)
+          .bgEncodeFromStruct(bgWriteBuffer, "", inputs)
           //Get the internal write buffer for use.
-          .bgBufferGet()
+          .bgGetBuffer()
 network_send_raw(socket, buff, buffer_get_size(buff));
 ```
 
