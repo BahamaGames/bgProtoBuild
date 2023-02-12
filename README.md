@@ -64,6 +64,6 @@ If we had not assigned one, results would contain:
 # Cleanup
 When done make to sure clean up to prevent memory leak.
 ```
-log.bgProtoBuildCleanup();
+pb.bgProtoBuildCleanup();
 delete pb;
 ```
