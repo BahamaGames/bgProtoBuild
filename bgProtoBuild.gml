@@ -7,30 +7,32 @@ GitHub	: https://github.com/BahamaGames
 Credits : Maseta. Base was made from his protobuild. https://meseta.itch.io/lockstep
 */
 
-//Feather ignore 1045
+//		Feather disable GM2017 Inconsistent naming
+//		Feather disable GM1041 Passing struct to Id.Instance 
+//		Feather disable GM1042 Parameter naming convention
+//		Feather disable GM1063
+//		Feather disable GM1044
+//		Feather disable GM2044
 
 /// @context										bgProtoBuild
-/// @function										bgProtoBuild(protoConfig, loggerConfig)
 /// @description									Builds proto messages / buffers to be used for rpcs. Most methods can be chained to utilize the internal write buffer,
 ///													and current message feature. You may provide a config struct to modify the protocol.
-///													{
-///														code:		 {Real}							A unique code within the range of 0 - 65533 used to identify protocol, 
+///														code		: {Real} 						A unique code within the range of 0 - 65533 used to identify the protocol, 
 ///																									verify connection, and packets. Note 65534 is used for custom protocol 
 ///																									entry point that you may provide, and 65535 is for internal secondary protocol.
 
-///														interceptor: {Function(callback, packet)}	A function that intercepts a callback during decode methods. Return true to 
+///														interceptor	: {Function(callback, packet)} 	A function that intercepts a callback during decode methods. Return true to 
 ///																									execute, and false to skip. Does not apply to custom protocol.
 
-///														protocol:	 {Function(async_load_)}		A function that is executed if the protocol code is 65534. Buffer size 
+///														protocol	: {Function(async_load)} 		A function that is executed if the protocol code is 65534. Buffer size 
 ///																									(in bytes) must be greater than 4 to account for internal headers before being
 ///																									sent, and the offset will be at 2 upon read which was read to determine the protocol
 ///																									code. It should also be noted this function should be treated as if being called
-///																									within the async network event. DO NOT DESTROY THE DS MAP OR DELETE THE BUFFER!!!
+///																									within the async network event. DO NOT DESTROY THE DS MAP NOR DELETE THE BUFFER!!!
 ///																									If using a tcp related protocol you must read the entirety of the custom buffer
 ///																									you sent. NOT the actual size of the buffer stored within async_load_[? "size"] or 
-///																									returned by buffer_get_size(). As the buffer may contain additional bytes from previous
-///																									packets, or potentially new ones.
-///													}
+///																									returned by buffer_get_size(), as the buffer may contain additional bytes from previous
+///																									packets, or potentially new ones. Check <bgPacketizeCustomStream> for help with tcp stream.
 
 /// @param {Struct}					protoConfig		- Configuration struct for protobuild.
 /// @param {Struct}					loggerConfig	- Configuration struct for bgLogger if present.
@@ -43,15 +45,17 @@ function bgProtoBuild(__bg_config = {"code": 0xAE1B, "interceptor": undefined, "
 	All variables are to be used for READONLY purposes if wishs to write
 	simply make a copy, and use that.
 	*/
-	bg_proto_code					= __bg_config[$ "code"] ?? 0xAE1B;
+	bg_proto_code					= __bg_config[$ "code"]			?? 0xAE1B;
+	_bg_custom_protocol				= __bg_config[$ "protocol"]		?? bg_blank_callback;
+	_bg_callback_interceptor		= __bg_config[$ "interceptor"]	?? function(__bg_callback, __bg_packet) {return true};
+	
 	bg_hash							= "";
 	bg_msg_specs					= {};
 	bg_msg_index					= [];
 	bg_msg_current					= "";
 	bg_size							= 0;
-	_bg_custom_protocol				= __bg_config[$ "protocol"] ?? bg_blank_callback;
-	_bg_secondary_protocol			= __bg_config[$ "_bg_secondary"] ?? bg_blank_callback;
-	_bg_callback_interceptor		= __bg_config[$ "interceptor"] ?? function(__bg_callback, __bg_packet) {return true};
+	_bg_secondary_protocol_array	= [];
+	_bg_secondary_protocol_length	= 0;
 	_bg_write_buffer				= buffer_create(1, buffer_grow, 1);
 	_bg_read_buffers 				= array_create(65535, undefined);
 	_bg_async_load					= ds_map_create();
@@ -63,12 +67,14 @@ function bgProtoBuild(__bg_config = {"code": 0xAE1B, "interceptor": undefined, "
 	#macro bgWriteBuffer			-1
 	
 	/*
-	Values from 65518-65530 in respective order are reserved 
+	Values from 65516-65530 in respective order are reserved 
 	for read and writes. If you have a value within those range 
 	use bgText or bgBuffer to convert it. bgText is capped at a
 	65535 length, and bgBuffer 4294967295. Beware of mtu.
 	*/
 	
+	
+	#macro bgConstruct				0xFFEC
 	#macro bgJson					0xFFED
 	#macro bgBool					0xFFEE
 	#macro bgU8						0xFFEF
@@ -188,6 +194,7 @@ function bgProtoBuild(__bg_config = {"code": 0xAE1B, "interceptor": undefined, "
 					break;
 				case bgText:
 				case bgJson:
+				case bgConstruct:
 				case bgU16:
 				case bgS16:
 				case bgF16:
@@ -299,6 +306,7 @@ function bgProtoBuild(__bg_config = {"code": 0xAE1B, "interceptor": undefined, "
 		            break;
 				case bgText:
 				case bgJson:
+				case bgConstruct:
 		        case bgU16:
 		        case bgS16:
 				case bgF16:
@@ -400,7 +408,7 @@ function bgProtoBuild(__bg_config = {"code": 0xAE1B, "interceptor": undefined, "
 			case bgF64:
 				buffer_write(__bg_buff, buffer_f64, __bg_insert_val);
 				break;
-			case bgJson:
+			case bgJson: case bgConstruct:
 				var __bg_json = json_stringify(__bg_insert_val);
 				buffer_write(__bg_buff, buffer_u16, string_length(__bg_json));
 				buffer_write(__bg_buff, buffer_text, __bg_json);
@@ -491,15 +499,16 @@ function bgProtoBuild(__bg_config = {"code": 0xAE1B, "interceptor": undefined, "
 	}
 	
 	/// @context								self
-	/// @function								bgDecodeValue(bufferid, specType)
+	/// @function								bgDecodeValue(bufferid, specType, specDefault)
 	/// @description							Decodes a protospec into a buffer, returning the value.
 	/// @param	{Id.Buffer}			bufferid	- Buffer index to decode.
 	/// @param {Constant.bgType}	bgType		- Type of buffer to decode a Real value between 1 and bgBuffer.
+	/// @param {Function}			default		- If the type is a constructor the default value or in our case the constructor asset.
 	/// @return {any}				
-	static bgDecodeValue			= function(__bg_buffer, __bg_spec_type)
+	static bgDecodeValue			= function(__bg_buffer, __bg_spec_type, __bg_spec_default = undefined)
 	{
 		var 
-		__bg_value = undefined,
+		__bg_value	= undefined,
 		__bg_buff,
 		__bg_r,
 		__bg_s;
@@ -621,10 +630,59 @@ function bgProtoBuild(__bg_config = {"code": 0xAE1B, "interceptor": undefined, "
 					buffer_seek(__bg_buffer, buffer_seek_relative, __bg_s);
 					
 					try{
-					__bg_value	= json_parse(buffer_read(__bg_buff, buffer_text));
+						__bg_value	= json_parse(buffer_read(__bg_buff, buffer_text));
 					}catch(e){
 						__bg_value = "";
-						bgDebug("Failed to parse json: ", e);
+						//bgDebug("Failed to parse json: ", e);
+					}
+					
+					buffer_delete(__bg_buff);
+				}else __bg_value = "";
+				break;
+			case bgConstruct:
+				__bg_r	= buffer_get_size(__bg_buffer) - buffer_tell(__bg_buffer);
+				if(__bg_r < 2)
+				{
+					__bg_value = undefined;
+					break;
+				}
+				__bg_r -= 2;
+				__bg_s	= buffer_read(__bg_buffer, buffer_u16);
+				if(__bg_r < __bg_s)
+				{
+					__bg_value = undefined;
+					break;
+				}
+				if(__bg_s > 0)
+				{
+					__bg_buff = buffer_create(__bg_s, buffer_fixed, 1);
+					
+					buffer_copy(__bg_buffer, buffer_tell(__bg_buffer), __bg_s, __bg_buff, 0);
+					
+					buffer_seek(__bg_buffer, buffer_seek_relative, __bg_s);
+					var __bg_struct;
+					try{
+						__bg_struct	= json_parse(buffer_read(__bg_buff, buffer_text));
+					}catch(e){
+						__bg_value = "";
+						//bgDebug("Failed to parse json: ", e);
+					}
+					
+					if(__bg_value != "")
+					{
+						var __bg_structor = __bg_struct.bg_constructor;
+						
+						if(__bg_structor != undefined) __bg_spec_default = asset_get_index(__bg_structor);
+						
+						with(new __bg_spec_default())
+						{
+							for(var a = variable_struct_get_names(__bg_struct), i = array_length(a) - 1; i >= 0; --i)
+							{
+								var k = a[i];
+								self[$ k] = __bg_struct[$ k];
+							}
+							__bg_value = self;
+						}	
 					}
 					
 					buffer_delete(__bg_buff);
@@ -632,23 +690,18 @@ function bgProtoBuild(__bg_config = {"code": 0xAE1B, "interceptor": undefined, "
 				break;
 			case bgText:
 				__bg_r	= buffer_get_size(__bg_buffer) - buffer_tell(__bg_buffer);
-				
 				if(__bg_r < 2)
 				{
 					__bg_value = undefined;
 					break;
 				}
-				
 				__bg_r -= 2;
-				
 				__bg_s	= buffer_read(__bg_buffer, buffer_u16);
-				
 				if(__bg_r < __bg_s)
 				{
 					__bg_value = undefined;
 					break;
 				}
-				
 				if(__bg_s > 0)
 				{
 					__bg_buff = buffer_create(__bg_s, buffer_fixed, 1);
@@ -664,27 +717,20 @@ function bgProtoBuild(__bg_config = {"code": 0xAE1B, "interceptor": undefined, "
 				break;	
 			case bgBuffer:
 				__bg_r	= buffer_get_size(__bg_buffer) - buffer_tell(__bg_buffer);
-				
 				if(__bg_r < 4)
 				{
 					__bg_value = undefined;
 					break;
 				}
-				
 				__bg_r -= 4;
-				
 				__bg_s	= buffer_read(__bg_buffer, buffer_u32);
-				
 				if(__bg_r < __bg_s)
 				{
 					__bg_value = undefined;
 					break;
 				}
-				
 				__bg_value	= buffer_create(__bg_s, buffer_fixed, 1);
-				
 				buffer_copy(__bg_buffer, buffer_tell(__bg_buffer), __bg_s, __bg_value, 0);
-				
 				buffer_seek(__bg_buffer, buffer_seek_relative, __bg_s);
 				break;
 			default:
@@ -694,15 +740,10 @@ function bgProtoBuild(__bg_config = {"code": 0xAE1B, "interceptor": undefined, "
 					__bg_value = undefined;
 					break;
 				}
-				
 				__bg_buff = buffer_create(__bg_spec_type, buffer_fixed, 1);
-				
 				buffer_copy(__bg_buffer, buffer_tell(__bg_buffer), __bg_spec_type, __bg_buff, 0);
-				
 				buffer_seek(__bg_buffer, buffer_seek_relative, __bg_spec_type);
-				
 				__bg_value	= buffer_read(__bg_buff, buffer_text);
-				
 				buffer_delete(__bg_buff);
 		}
 		
@@ -738,8 +779,8 @@ function bgProtoBuild(__bg_config = {"code": 0xAE1B, "interceptor": undefined, "
 		switch(__bg_header)
 		{
 			case bg_proto_code: break;
-			case 65534: _bg_custom_protocol(__bg_async_load); return;
-			case 65535: _bg_secondary_protocol(__bg_async_load); return;
+			case bgCustomProtocol: _bg_custom_protocol(__bg_async_load); return;
+			case bgCustomProtocol + 1: bgSecondaryProtocolRun(__bg_async_load); return;
 			default:
 				bgWarn("Invalid header", __bg_header);
 				buffer_resize(__bg_read_buffer, __bg_size);
@@ -778,17 +819,15 @@ function bgProtoBuild(__bg_config = {"code": 0xAE1B, "interceptor": undefined, "
 		            if(__bg_spec_type == undefined)
 					{
 						bgWarn("Spec type is undefined for", __bg_spec_name);
-							
 						return __bg_buffer_array;
 					}
 						
 					//Pass in buffer size and offset
-					var __bg_value	= bgDecodeValue(__bg_read_buffer, __bg_spec_type);
+					var __bg_value	= bgDecodeValue(__bg_read_buffer, __bg_spec_type, __bg_spec.bg_default);
 						
 					if(__bg_value != undefined) __bg_packet[$ __bg_spec_name] = __bg_value;
 					else {
 						bgWarn("Invalid value size for spec",__bg_spec_name, "in", __bg_msg_id);
-							
 						return __bg_buffer_array;
 					}
 		        }
@@ -805,7 +844,6 @@ function bgProtoBuild(__bg_config = {"code": 0xAE1B, "interceptor": undefined, "
 				}else array_push(__bg_buffer_array, __bg_packet);
 		    }else{
 				bgWarn("Message", __bg_msg_id,"not in protocol");
-					
 				return __bg_buffer_array;
 			}
 		}
@@ -843,7 +881,7 @@ function bgProtoBuild(__bg_config = {"code": 0xAE1B, "interceptor": undefined, "
 			switch(__bg_header)
 			{
 				case bg_proto_code: break;
-				case 65534:
+				case bgCustomProtocol:
 					__bg_size					= buffer_get_size(__bg_read_buffer);
 					
 					_bg_async_load[? "id"]		= __bg_sender_id;
@@ -865,7 +903,7 @@ function bgProtoBuild(__bg_config = {"code": 0xAE1B, "interceptor": undefined, "
 					__bg_read_buffer			= __bg_buffer;
 					_bg_read_buffers[__bg_sender_id] = __bg_read_buffer;
 					continue;
-				case 65535: 
+				case bgCustomProtocol + 1: 
 					__bg_size					= buffer_get_size(__bg_read_buffer);
 					
 					_bg_async_load[? "id"]		= __bg_sender_id;
@@ -874,21 +912,21 @@ function bgProtoBuild(__bg_config = {"code": 0xAE1B, "interceptor": undefined, "
 					_bg_async_load[? "buffer"]	= __bg_read_buffer;
 					_bg_async_load[? "size"]	= __bg_size;
 					
-					_bg_secondary_protocol(_bg_async_load);
+					bgSecondaryProtocolRun(_bg_async_load);
 				
 					var 
 					__bg_tell					= buffer_tell(__bg_read_buffer),
-			        __bg_buffer					= buffer_create(__bg_size - __bg_tell, buffer_grow, 1);
-		        
-					buffer_copy(__bg_read_buffer, __bg_tell, __bg_size - __bg_tell, __bg_buffer, 0);
-		        
+					__bg_remaining				= __bg_size - __bg_tell,
+				    __bg_buffer					= buffer_create(__bg_remaining, buffer_grow, 1);
+					
+					buffer_copy(__bg_read_buffer, __bg_tell, __bg_remaining, __bg_buffer, 0);
 					buffer_delete(__bg_read_buffer);
 		        
 					__bg_read_buffer			= __bg_buffer;
 					_bg_read_buffers[__bg_sender_id] = __bg_read_buffer;
 					continue;
 				default:
-					bgWarn("Invalid header", __bg_header);
+					bgTrace("Invalid header", __bg_header);
 					buffer_resize(__bg_read_buffer, __bg_size);
 				    return __bg_buffer_array;
 			}
@@ -945,7 +983,7 @@ function bgProtoBuild(__bg_config = {"code": 0xAE1B, "interceptor": undefined, "
 							return __bg_buffer_array;
 						}
 						
-						var __bg_value = bgDecodeValue(__bg_read_buffer, __bg_spec_type);
+						var __bg_value = bgDecodeValue(__bg_read_buffer, __bg_spec_type, __bg_spec.bg_default);
 						
 						if(__bg_value != undefined) __bg_packet[$ __bg_spec_name] = __bg_value;
 						else{
@@ -1010,7 +1048,7 @@ function bgProtoBuild(__bg_config = {"code": 0xAE1B, "interceptor": undefined, "
 		{
 			_bg_read_buffers[__bg_sender_id] = __bg_read_buffer;
 			if(__bg_id != -1) bgWarn("Trailing", __bg_remaining, "(bytes) detected after read from", bg_msg_index[__bg_id].bg_name, "onward");
-		}else{
+		}else {
 			var __bg_buffer = _bg_read_buffers[__bg_sender_id];
 			if(__bg_buffer != undefined)
 			{
@@ -1078,6 +1116,7 @@ function bgProtoBuild(__bg_config = {"code": 0xAE1B, "interceptor": undefined, "
 		buffer_write(__bg_buff, buffer_u16, bg_proto_code);
 		buffer_write(__bg_buff, buffer_u16, __bg_size);
 		
+		//If the protomessage only contains a msg id simply add it.
 		if(__bg_size == 2) buffer_write(__bg_buff, buffer_u16, bg_msg_specs[$ __bg_msg_name].bg_id);
 		
 		bg_msg_current = __bg_msg_name;
@@ -1169,6 +1208,10 @@ function bgProtoBuild(__bg_config = {"code": 0xAE1B, "interceptor": undefined, "
 		buffer_delete(_bg_write_buffer);
 		
 		ds_map_destroy(_bg_async_load);
+		
+		bgSecondaryRemoveAll();
+		
+		_bg_secondary_protocol_array = undefined;
 		
 		for(var i = 0; i < 65535; ++i) bgBufferIndexClear(i);
 	}
@@ -1304,6 +1347,129 @@ function bgProtoBuild(__bg_config = {"code": 0xAE1B, "interceptor": undefined, "
 	static bgGetHash				= function()
 	{
 		return bg_hash;
+	}
+	
+	/// @context								self
+	/// @function								bgPacketizeCustomStream(target_buffer, async_load, callback)
+	/// @description							Packetize custom protocol tcp stream executing callback. Callback must return a boolen on whether 
+	///											it has read the necessary data from the buffer. Must update targeted buffer with function return 
+	///											buffer to prevent Illegal Buffer index issues due to buffer deletion.
+	/// @param {Id.Buffer}			buffer		- Buffer to concatnate too.
+	/// @param	{Id.DsMap}			async_load	- A ds_map that contains all keys similar to the async_load with network event.
+	/// @param {Function}			callback	- Callback function(buffer, async_load) to execute. Must return a booling whether it has read the data.
+	/// @return {ID.Buffer}						Returns target_buffer or a poentially new buffer one.
+	static bgPacketizeCustomStream	= function(__bg_target_buffer, __bg_async_load, __bg_callback)
+	{
+		var 
+		__bg_size = __bg_async_load[? "size"],
+		__bg_buff = __bg_async_load[? "buffer"];
+		
+		//Concat async buffer to to auxiliary read buffer due to stream.
+		buffer_copy(__bg_buff, 0, __bg_size, __bg_target_buffer, buffer_get_size(__bg_target_buffer));
+		
+		//Update the read pos.
+        buffer_seek(__bg_buff, buffer_seek_start, __bg_size);
+		
+		buffer_seek(__bg_target_buffer, buffer_seek_start, 0);
+		
+        while(buffer_get_size(__bg_target_buffer) - buffer_tell(__bg_target_buffer))
+		{
+            var __bg_offset   = buffer_tell(__bg_target_buffer);
+            
+			//Skip header
+			buffer_read(__bg_target_buffer, buffer_u16);
+			
+			if(!__bg_callback(__bg_target_buffer, __bg_async_load))
+			{
+				buffer_seek(__bg_target_buffer, buffer_seek_start, __bg_offset);
+				return __bg_target_buffer;
+			}
+			
+			//Delete buffer data.
+			var 
+            __bg_length = buffer_tell(__bg_target_buffer) - __bg_offset,
+            __bg_size	= buffer_get_size(__bg_target_buffer),
+            __bg_buffer	= buffer_create(__bg_size - __bg_length, buffer_grow, 1);
+            buffer_copy(__bg_target_buffer, __bg_length, __bg_size - __bg_length, __bg_buffer, 0);
+            buffer_delete(__bg_target_buffer);
+            return __bg_buffer;
+        }	
+	}
+	
+	/// @context								self
+	/// @function								bgSecondaryProtocolAdd(...functions)
+	/// @description							Adds a function(s) to be executed during network async event when proto_code is 65535.
+	/// @param {Function}			...function	- Callback function(async_load) to be executed when proto_code is 65535.
+	/// @return {Struct}						Returns the protobuild interface thus can be chained.
+	static bgSecondaryProtocolAdd	= function()
+	{
+		for(var i = 0; i < argument_count; ++i)
+		{
+			var 
+			k = argument[i],
+			f = false;
+		
+			for(var o = 0; o < _bg_secondary_protocol_length; ++o)
+			{
+				if(_bg_secondary_protocol_array[o] == k) 
+				{
+					f = true;
+					break;
+				}
+			}
+		
+			if(!f)
+			{
+				array_push(_bg_secondary_protocol_array, k);
+				_bg_secondary_protocol_length++;
+			}
+		}
+		return self;
+	}
+	
+	/// @context								self
+	/// @function								bgSecondaryProtocolRemove(...functions)
+	/// @description							Remove(s) SecondaryProtocol function.
+	/// @param {Function}			...function	- Function to be removed.
+	/// @return {Struct}						Returns the protobuild interface thus can be chained.
+	static bgSecondaryProtocolRemove= function()
+	{
+		for(var i = 0; i < argument_count; ++i)
+		{
+			var k = argument[i];
+			for(var o = 0; o < _bg_secondary_protocol_length; ++o)
+			{
+				if(_bg_secondary_protocol_array[o] == k)
+				{
+					array_delete(_bg_secondary_protocol_array, o, 1);
+					_bg_secondary_protocol_length--;
+					break;	
+				}
+			}
+		}
+		
+		return self;
+	}
+	
+	/// @context								self
+	/// @function								bgSecondaryRemoveAll()
+	/// @description							Removes all SecondaryProtocol functions.
+	/// @return {Struct}						Returns the protobuild interface thus can be chained.
+	static bgSecondaryRemoveAll		= function()
+	{
+		while(_bg_secondary_protocol_length > 0) bgSecondaryProtocolRemove(_bg_secondary_protocol_array[0]);
+		return self;
+	}
+	
+	/// @context								self
+	/// @function								bgSecondaryProtocolRun(async_load)
+	/// @description							Executes all SecondaryProtovol functions passing in the async ds_map.
+	/// @param	{Id.DsMap}			async_load	- A ds_map that contains all keys similar to the async_load with network event.
+	/// @return {Struct}						Returns the protobuild interface thus can be chained.
+	static bgSecondaryProtocolRun	= function(__bg_async_load = async_load)
+	{
+		for(var i = 0; i < _bg_secondary_protocol_length; ++i) _bg_secondary_protocol_array[i](__bg_async_load);
+		return self;
 	}
 	
 	//For compatibility with bgLogger
