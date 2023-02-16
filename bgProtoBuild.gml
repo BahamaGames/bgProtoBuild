@@ -51,11 +51,11 @@ function bgProtoBuild(__bg_config = {"code": 0xAE1B, "interceptor": undefined, "
 	
 	bg_hash							= "";
 	bg_msg_specs					= {};
-	bg_msg_index					= [];
 	bg_msg_current					= "";
-	bg_size							= 0;
+	_bg_msg_id						= 0;
 	_bg_secondary_protocol_array	= [];
 	_bg_secondary_protocol_length	= 0;
+	_bg_msg_array					= array_create(65535, undefined);
 	_bg_write_buffer				= buffer_create(1, buffer_grow, 1);
 	_bg_read_buffers 				= array_create(65535, undefined);
 	_bg_async_load					= ds_map_create();
@@ -67,13 +67,18 @@ function bgProtoBuild(__bg_config = {"code": 0xAE1B, "interceptor": undefined, "
 	#macro bgWriteBuffer			-1
 	
 	/*
-	Values from 65516-65530 in respective order are reserved 
-	for read and writes. If you have a value within those range 
-	use bgText or bgBuffer to convert it. bgText is capped at a
-	65535 length, and bgBuffer 4294967295. Beware of mtu.
+	Values from 65512-65530 in respective order are reserved 
+	for read and writes. It's recommended to use bgText, or 
+	bgBuffer to write any value that are not within the range
+	of any of the bg* buffer types due to possibe changes.
+	bgText is capped at a 65535 length, and bgBuffer 4294967295.
+	Beware of mtu.
 	*/
 	
-	
+	#macro bgAssetScript			0xFFE8
+	#macro bgAssetPath				0xFFE9
+	#macro bgAssetObject			0xFFEA
+	#macro bgAssetSprite			0xFFEB
 	#macro bgConstruct				0xFFEC
 	#macro bgJson					0xFFED
 	#macro bgBool					0xFFEE
@@ -90,13 +95,34 @@ function bgProtoBuild(__bg_config = {"code": 0xAE1B, "interceptor": undefined, "
 	#macro bgText					0xFFF9
 	#macro bgBuffer					0xFFFA
 	
+	/// @context								self
+	/// @function								bgGetMsgId()
+	/// @description							Returns the protomessage id tracker.
+	/// @return   {Real}
+	static bgGetMsgId				= function()
+	{
+		return _bg_msg_id;
+	}
+	
 	/// @context								self								
-	/// @function								bgMsgCreate(msgName, callback)
+	/// @function								bgSetMsgId(id)
+	/// @description							Sets the protomessage id tracker.
+	/// @param	 {Real}				id			- Id to assign to protomessage must be within the range 0 - 65535.
+	/// @return {Struct}						Returns the protobuild interface thus can be chained.
+	static bgSetMsgId				= function(__bg_id)
+	{
+		_bg_msg_id = __bg_id;
+		return self;
+	}
+	
+	/// @context								self								
+	/// @function								bgMsgCreate(msgName, callback, id)
 	/// @description							Creates a new proto message with an optional callback. Returns the protobuild interface thus can be chained.
 	/// @param   {string}			msgName		- Proto message name.
-	/// @param   {Function}			*callback	- Function of callback handler to trigger when recieving this message.
+	/// @param   {Function}			callback	- Function of callback handler to trigger when recieving this message.
+	/// @param	 {Real}				id			- Id to assign to protomessage must be within the range 0 - 65535.
 	/// @return {Struct}						Returns the protobuild interface thus can be chained.
-	static bgMsgCreate				= function(__bg_msg_name, __bg_callback = bg_blank_callback)
+	static bgMsgCreate				= function(__bg_msg_name, __bg_callback = bg_blank_callback, __bg_id = _bg_msg_id)
 	{
 		if(argument_count < 1)
 		{
@@ -104,24 +130,29 @@ function bgProtoBuild(__bg_config = {"code": 0xAE1B, "interceptor": undefined, "
 			return self;
 		}
 		
+		if(_bg_msg_array[__bg_id] != undefined)
+		{
+			bgWarn("Invalid id already in use");
+			return self;
+		}
+		
 		if(bg_msg_specs[$ __bg_msg_name] == undefined)
 		{
-			var __bg_msg		= {
-				bg_id			: bg_size++,
-				bg_name			: __bg_msg_name,
-				bg_specs		: [],
-				bg_types		: [],
-				bg_size			: 0,
-				bg_value		: 0,
-				bg_callback		: __bg_callback,
-				bg_callback_str	: __bg_callback != bg_blank_callback? script_get_name(__bg_callback): ""
+			var __bg_msg					= {
+				bg_id						: __bg_id,
+				bg_name						: __bg_msg_name,
+				bg_specs					: [],
+				bg_types					: [],
+				bg_size						: 0,
+				bg_value					: 0,
+				bg_callback					: __bg_callback,
+				bg_callback_str				: __bg_callback != bg_blank_callback? script_get_name(__bg_callback): ""
 			}
 			
-			array_push(bg_msg_index, __bg_msg);
-			
-			bg_msg_specs[$ __bg_msg_name] = __bg_msg;
-			
-			bg_msg_current = __bg_msg_name;
+			_bg_msg_id						= __bg_id + 1;
+			bg_msg_specs[$ __bg_msg_name]	= __bg_msg;
+			_bg_msg_array[__bg_id]			= __bg_msg;
+			bg_msg_current					= __bg_msg_name;
 			
 			return self;
 		}else bgWarn(__bg_msg_name + " was already added");
@@ -192,6 +223,8 @@ function bgProtoBuild(__bg_config = {"code": 0xAE1B, "interceptor": undefined, "
 				case bgS8:
 					__bg_size += 1;
 					break;
+				case bgAssetSprite:
+				case bgAssetObject:
 				case bgText:
 				case bgJson:
 				case bgConstruct:
@@ -304,6 +337,7 @@ function bgProtoBuild(__bg_config = {"code": 0xAE1B, "interceptor": undefined, "
 		        case bgS8:
 		            __bg_size += 1;
 		            break;
+				case bgAssetScript: case bgAssetSprite: case bgAssetPath: case bgAssetObject:
 				case bgText:
 				case bgJson:
 				case bgConstruct:
@@ -351,7 +385,6 @@ function bgProtoBuild(__bg_config = {"code": 0xAE1B, "interceptor": undefined, "
 		if(__bg_msg == undefined)
 		{
 			bgFatal("message", __bg_msg_name, "not found");
-			
 			return -1;
 		}
 		
@@ -408,11 +441,38 @@ function bgProtoBuild(__bg_config = {"code": 0xAE1B, "interceptor": undefined, "
 			case bgF64:
 				buffer_write(__bg_buff, buffer_f64, __bg_insert_val);
 				break;
-			case bgJson: case bgConstruct:
-				var __bg_json = json_stringify(__bg_insert_val);
-				buffer_write(__bg_buff, buffer_u16, string_length(__bg_json));
-				buffer_write(__bg_buff, buffer_text, __bg_json);
+			case bgConstruct:
+				var 
+				__bg_protobuild = self,
+				__bg_size		= buffer_tell(__bg_buff);
+				with(__bg_insert_val)
+				{
+					var 
+					__bg_schema = __bg_protobuild.bg_msg_specs[$ bg_struct],
+					__bg_defini = __bg_schema.bg_specs;
+					
+					buffer_write(__bg_buff, buffer_u32, 0);
+					buffer_write(__bg_buff, buffer_string, bg_struct);
+					
+					for(var i	= __bg_schema.bg_value - 1; i >= 0; --i)
+					{
+						var __bg_spec = __bg_defini[i];
+						__bg_protobuild.bgEncodeValue(__bg_buff, __bg_spec.bg_type, self[$ __bg_spec.bg_name]);
+					}
+					
+					buffer_poke(__bg_buff, __bg_size, buffer_u32, buffer_tell(__bg_buff) - __bg_size);
+				}
 				break;
+			case bgJson:
+				__bg_insert_val = json_stringify(__bg_insert_val);
+			case bgAssetSprite:
+				__bg_insert_val = !is_real(__bg_insert_val)? __bg_insert_val: sprite_get_name(__bg_insert_val);
+			case bgAssetObject:
+				__bg_insert_val = !is_real(__bg_insert_val)? __bg_insert_val: object_get_name(__bg_insert_val);
+			case bgAssetPath:
+				__bg_insert_val = !is_real(__bg_insert_val)? __bg_insert_val: path_get_name(__bg_insert_val);
+			case bgAssetScript:
+				__bg_insert_val = !is_real(__bg_insert_val)? __bg_insert_val: script_get_name(__bg_insert_val);
 			case bgText:
 				buffer_write(__bg_buff, buffer_u16, string_length(__bg_insert_val));
 				buffer_write(__bg_buff, buffer_text, __bg_insert_val);
@@ -499,13 +559,13 @@ function bgProtoBuild(__bg_config = {"code": 0xAE1B, "interceptor": undefined, "
 	}
 	
 	/// @context								self
-	/// @function								bgDecodeValue(bufferid, specType, specDefault)
-	/// @description							Decodes a protospec into a buffer, returning the value.
+	/// @function								bgDecodeValue(bufferid, specType, object)
+	/// @description							Decodes a protospec into a buffer, returning the value. If parse fail value will return undefined.
 	/// @param	{Id.Buffer}			bufferid	- Buffer index to decode.
 	/// @param {Constant.bgType}	bgType		- Type of buffer to decode a Real value between 1 and bgBuffer.
-	/// @param {Function}			default		- If the type is a constructor the default value or in our case the constructor asset.
+	/// @param {Struct}				object		- The constructor struct to update directly. Must have the variable bg_struct.
 	/// @return {any}				
-	static bgDecodeValue			= function(__bg_buffer, __bg_spec_type, __bg_spec_default = undefined)
+	static bgDecodeValue			= function(__bg_buffer, __bg_spec_type, __bg_object = undefined)
 	{
 		var 
 		__bg_value	= undefined,
@@ -517,218 +577,126 @@ function bgProtoBuild(__bg_config = {"code": 0xAE1B, "interceptor": undefined, "
 		{
 			case 0: return 0;
 			case bgBool: case bgU8:
-				__bg_r	= buffer_get_size(__bg_buffer) - buffer_tell(__bg_buffer);
-				if(__bg_r < 1)
-				{
-					__bg_value = undefined;
-					break;
-				}
-				__bg_value	= buffer_read(__bg_buffer, buffer_u8);
+				if(buffer_get_size(__bg_buffer) - buffer_tell(__bg_buffer) >= 1) __bg_value = buffer_read(__bg_buffer, buffer_u8);
 				break;
 			case bgS8:
-				__bg_r	= buffer_get_size(__bg_buffer) - buffer_tell(__bg_buffer);
-				if(__bg_r < 1)
-				{
-					__bg_value = undefined;
-					break;
-				}
-				__bg_value	= buffer_read(__bg_buffer, buffer_s8);
+				if(buffer_get_size(__bg_buffer) - buffer_tell(__bg_buffer) >= 1) __bg_value = buffer_read(__bg_buffer, buffer_s8);
 				break;
 			case bgU16:
-				__bg_r	= buffer_get_size(__bg_buffer) - buffer_tell(__bg_buffer);
-				if(__bg_r < 2)
-				{
-					__bg_value = undefined;
-					break;
-				}
-				__bg_value	= buffer_read(__bg_buffer, buffer_u16);
+				if(buffer_get_size(__bg_buffer) - buffer_tell(__bg_buffer) >= 2) __bg_value = buffer_read(__bg_buffer, buffer_u16);
 				break;
 			case bgS16:
-				__bg_r	= buffer_get_size(__bg_buffer) - buffer_tell(__bg_buffer);
-				if(__bg_r < 2)
-				{
-					__bg_value = undefined;
-					break;
-				}
-				__bg_value	= buffer_read(__bg_buffer, buffer_s16);
+				if(buffer_get_size(__bg_buffer) - buffer_tell(__bg_buffer) >= 2) __bg_value = buffer_read(__bg_buffer, buffer_s16);
 				break;
 			case bgF16:
-				__bg_r	= buffer_get_size(__bg_buffer) - buffer_tell(__bg_buffer);
-				if(__bg_r < 2)
-				{
-					__bg_value = undefined;
-					break;
-				}
-				__bg_value	= buffer_read(__bg_buffer, buffer_f16);
+				if(buffer_get_size(__bg_buffer) - buffer_tell(__bg_buffer) >= 2) __bg_value = buffer_read(__bg_buffer, buffer_f16);
 				break;
 			case bgU32:
-				__bg_r	= buffer_get_size(__bg_buffer) - buffer_tell(__bg_buffer);
-				if(__bg_r < 4)
-				{
-					__bg_value = undefined;
-					break;
-				}
-				__bg_value	= buffer_read(__bg_buffer, buffer_u32);
+				if(buffer_get_size(__bg_buffer) - buffer_tell(__bg_buffer) >= 4) __bg_value = buffer_read(__bg_buffer, buffer_u32);
 				break;
 			case bgS32:
-				__bg_r	= buffer_get_size(__bg_buffer) - buffer_tell(__bg_buffer);
-				if(__bg_r < 4)
-				{
-					__bg_value = undefined;
-					break;
-				}
-				__bg_value	= buffer_read(__bg_buffer, buffer_s32);
+				if(buffer_get_size(__bg_buffer) - buffer_tell(__bg_buffer) >= 4) __bg_value = buffer_read(__bg_buffer, buffer_s32);
 				break;
 			case bgF32:
-				__bg_r	= buffer_get_size(__bg_buffer) - buffer_tell(__bg_buffer);
-				if(__bg_r < 4)
-				{
-					__bg_value = undefined;
-					break;
-				}
-				__bg_value	= buffer_read(__bg_buffer, buffer_f32);
+				if(buffer_get_size(__bg_buffer) - buffer_tell(__bg_buffer) >= 4) __bg_value = buffer_read(__bg_buffer, buffer_f32);
 				break;
 			case bgU64:
-				__bg_r	= buffer_get_size(__bg_buffer) - buffer_tell(__bg_buffer);
-				if(__bg_r < 8)
-				{
-					__bg_value = undefined;
-					break;
-				}
-				__bg_value	= buffer_read(__bg_buffer, buffer_u64);
+				if(buffer_get_size(__bg_buffer) - buffer_tell(__bg_buffer) >= 8) __bg_value = buffer_read(__bg_buffer, buffer_u64);
 				break;
 			case bgF64:
-				__bg_r	= buffer_get_size(__bg_buffer) - buffer_tell(__bg_buffer);
-				if(__bg_r < 8)
-				{
-					__bg_value = undefined;
-					break;
-				}
-				__bg_value	= buffer_read(__bg_buffer, buffer_f64);
+				if(buffer_get_size(__bg_buffer) - buffer_tell(__bg_buffer) >= 8) __bg_value = buffer_read(__bg_buffer, buffer_f64);
 				break;
 			case bgJson:
 				__bg_r	= buffer_get_size(__bg_buffer) - buffer_tell(__bg_buffer);
-				if(__bg_r < 2)
-				{
-					__bg_value = undefined;
-					break;
-				}
+				
+				if(__bg_r < 2) break;
+				
 				__bg_r -= 2;
 				__bg_s	= buffer_read(__bg_buffer, buffer_u16);
-				if(__bg_r < __bg_s)
-				{
-					__bg_value = undefined;
-					break;
-				}
+				
+				if(__bg_r < __bg_s) break;
 				
 				if(__bg_s > 0)
 				{
 					__bg_buff = buffer_create(__bg_s, buffer_fixed, 1);
-					
 					buffer_copy(__bg_buffer, buffer_tell(__bg_buffer), __bg_s, __bg_buff, 0);
-					
-					buffer_seek(__bg_buffer, buffer_seek_relative, __bg_s);
-					
-					try{
-						__bg_value	= json_parse(buffer_read(__bg_buff, buffer_text));
-					}catch(e){
-						__bg_value = "";
-						//bgDebug("Failed to parse json: ", e);
-					}
-					
+					buffer_seek(__bg_buffer, buffer_seek_relative, __bg_s);					
+					try{__bg_value	= json_parse(buffer_read(__bg_buff, buffer_text));}catch(e){__bg_value = undefined;}
 					buffer_delete(__bg_buff);
-				}else __bg_value = "";
+				}
 				break;
 			case bgConstruct:
 				__bg_r	= buffer_get_size(__bg_buffer) - buffer_tell(__bg_buffer);
-				if(__bg_r < 2)
+				
+				if(__bg_r < 4) break;
+				
+				__bg_r -= 4;
+				__bg_s	= buffer_read(__bg_buffer, buffer_u32);
+
+				if(__bg_r < __bg_s) break;
+				
+				var __bg_struct		= buffer_read(__bg_buffer, buffer_string);
+				
+				if(__bg_object == undefined || __bg_object.bg_struct != __bg_struct) __bg_object = new (asset_get_index(__bg_struct))();
+				
+				var __bg_protobuild = self;
+				
+				with(__bg_object)
 				{
-					__bg_value = undefined;
-					break;
-				}
-				__bg_r -= 2;
-				__bg_s	= buffer_read(__bg_buffer, buffer_u16);
-				if(__bg_r < __bg_s)
-				{
-					__bg_value = undefined;
-					break;
-				}
-				if(__bg_s > 0)
-				{
-					__bg_buff = buffer_create(__bg_s, buffer_fixed, 1);
+					var 
+					__bg_schema		= __bg_protobuild.bg_msg_specs[$ bg_struct],
+					__bg_specs		= __bg_schema.bg_specs;
 					
-					buffer_copy(__bg_buffer, buffer_tell(__bg_buffer), __bg_s, __bg_buff, 0);
-					
-					buffer_seek(__bg_buffer, buffer_seek_relative, __bg_s);
-					var __bg_struct;
-					try{
-						__bg_struct	= json_parse(buffer_read(__bg_buff, buffer_text));
-					}catch(e){
-						__bg_value = "";
-						//bgDebug("Failed to parse json: ", e);
+					for(var i = __bg_schema.bg_value - 1; i >= 0; --i)
+					{ 
+						var __bg_spec  = __bg_specs[i];
+						//Decode the buffer accordingly to spec
+						self[$ __bg_spec.bg_name] = __bg_protobuild.bgDecodeValue(__bg_buffer, __bg_spec.bg_type);
 					}
-					
-					if(__bg_value != "")
-					{
-						var __bg_structor = __bg_struct.bg_constructor;
-						
-						if(__bg_structor != undefined) __bg_spec_default = asset_get_index(__bg_structor);
-						
-						with(new __bg_spec_default())
-						{
-							for(var a = variable_struct_get_names(__bg_struct), i = array_length(a) - 1; i >= 0; --i)
-							{
-								var k = a[i];
-								self[$ k] = __bg_struct[$ k];
-							}
-							__bg_value = self;
-						}	
-					}
-					
-					buffer_delete(__bg_buff);
-				}else __bg_value = "";
+		
+					__bg_value = self;
+				}
+				break;
+			case bgAssetSprite: case bgAssetObject: case bgAssetPath: case bgAssetScript:
+				__bg_r		= buffer_get_size(__bg_buffer) - buffer_tell(__bg_buffer);
+				if(__bg_r < 2) break;
+				
+				__bg_r		-= 2;
+				__bg_s		= buffer_read(__bg_buffer, buffer_u16);
+				
+				if(__bg_r < __bg_s) break;
+				
+				__bg_buff	= buffer_create(__bg_s, buffer_fixed, 1);
+				buffer_copy(__bg_buffer, buffer_tell(__bg_buffer), __bg_s, __bg_buff, 0);
+				buffer_seek(__bg_buffer, buffer_seek_relative, __bg_s);
+				__bg_value	= asset_get_index(buffer_read(__bg_buff, buffer_text));
+				buffer_delete(__bg_buff);
 				break;
 			case bgText:
 				__bg_r	= buffer_get_size(__bg_buffer) - buffer_tell(__bg_buffer);
-				if(__bg_r < 2)
-				{
-					__bg_value = undefined;
-					break;
-				}
+				if(__bg_r < 2) break;
+				
 				__bg_r -= 2;
 				__bg_s	= buffer_read(__bg_buffer, buffer_u16);
-				if(__bg_r < __bg_s)
-				{
-					__bg_value = undefined;
-					break;
-				}
-				if(__bg_s > 0)
-				{
-					__bg_buff = buffer_create(__bg_s, buffer_fixed, 1);
-					
-					buffer_copy(__bg_buffer, buffer_tell(__bg_buffer), __bg_s, __bg_buff, 0);
-					
-					buffer_seek(__bg_buffer, buffer_seek_relative, __bg_s);
-					
-					__bg_value	= buffer_read(__bg_buff, buffer_text);
-					
-					buffer_delete(__bg_buff);
-				}else __bg_value = "";
+				
+				if(__bg_r < __bg_s) break;
+				
+				__bg_buff = buffer_create(__bg_s, buffer_fixed, 1);
+				buffer_copy(__bg_buffer, buffer_tell(__bg_buffer), __bg_s, __bg_buff, 0);
+				buffer_seek(__bg_buffer, buffer_seek_relative, __bg_s);
+				__bg_value	= buffer_read(__bg_buff, buffer_text);
+				buffer_delete(__bg_buff);
 				break;	
 			case bgBuffer:
 				__bg_r	= buffer_get_size(__bg_buffer) - buffer_tell(__bg_buffer);
-				if(__bg_r < 4)
-				{
-					__bg_value = undefined;
-					break;
-				}
+				
+				if(__bg_r < 4) break;
+				
 				__bg_r -= 4;
 				__bg_s	= buffer_read(__bg_buffer, buffer_u32);
-				if(__bg_r < __bg_s)
-				{
-					__bg_value = undefined;
-					break;
-				}
+				
+				if(__bg_r < __bg_s) break;
+				
 				__bg_value	= buffer_create(__bg_s, buffer_fixed, 1);
 				buffer_copy(__bg_buffer, buffer_tell(__bg_buffer), __bg_s, __bg_value, 0);
 				buffer_seek(__bg_buffer, buffer_seek_relative, __bg_s);
@@ -737,7 +705,6 @@ function bgProtoBuild(__bg_config = {"code": 0xAE1B, "interceptor": undefined, "
 				if(__bg_spec_type >= (bgText - 1))
 				{
 					bgDebug("Invalid buffer");
-					__bg_value = undefined;
 					break;
 				}
 				__bg_buff = buffer_create(__bg_spec_type, buffer_fixed, 1);
@@ -793,7 +760,7 @@ function bgProtoBuild(__bg_config = {"code": 0xAE1B, "interceptor": undefined, "
 		{
 			var
 		    __bg_msg_id				= buffer_read(__bg_read_buffer, buffer_u16),
-		    __bg_msg_struct			= __bg_msg_id >= 0 && __bg_msg_id < array_length(bg_msg_index)? bg_msg_index[__bg_msg_id]: undefined,
+		    __bg_msg_struct			= _bg_msg_array[__bg_msg_id],
 			__bg_packet				= {};
 				
 		    if(__bg_msg_struct != undefined) 
@@ -827,7 +794,7 @@ function bgProtoBuild(__bg_config = {"code": 0xAE1B, "interceptor": undefined, "
 						
 					if(__bg_value != undefined) __bg_packet[$ __bg_spec_name] = __bg_value;
 					else {
-						bgWarn("Invalid value size for spec",__bg_spec_name, "in", __bg_msg_id);
+						bgWarn("Invalid value size for spec", __bg_spec_name, "in", __bg_msg_struct.bg_name, ":", __bg_spec_type);
 						return __bg_buffer_array;
 					}
 		        }
@@ -842,7 +809,8 @@ function bgProtoBuild(__bg_config = {"code": 0xAE1B, "interceptor": undefined, "
 						
 					delete __bg_packet;
 				}else array_push(__bg_buffer_array, __bg_packet);
-		    }else{
+		    }
+			else{
 				bgWarn("Message", __bg_msg_id,"not in protocol");
 				return __bg_buffer_array;
 			}
@@ -945,7 +913,7 @@ function bgProtoBuild(__bg_config = {"code": 0xAE1B, "interceptor": undefined, "
 				
 		        var
 		        __bg_msg_id				= buffer_read(__bg_read_buffer, buffer_u16),
-				__bg_msg_struct			= __bg_msg_id >= 0 && __bg_msg_id < array_length(bg_msg_index)? bg_msg_index[__bg_msg_id]: undefined;
+				__bg_msg_struct			= _bg_msg_array[__bg_msg_id];
 				
 		        if(__bg_msg_struct != undefined) 
 				{
@@ -987,7 +955,7 @@ function bgProtoBuild(__bg_config = {"code": 0xAE1B, "interceptor": undefined, "
 						
 						if(__bg_value != undefined) __bg_packet[$ __bg_spec_name] = __bg_value;
 						else{
-							bgWarn("Invalid value size for spec", __bg_spec_name, "in", __bg_msg_id);
+							bgWarn("Invalid value size for spec", __bg_spec_name, "in", __bg_msg_struct.bg_name, ":", __bg_spec_type);
 								
 							var __bg_buffer = _bg_read_buffers[__bg_sender_id];
 							
@@ -1011,7 +979,8 @@ function bgProtoBuild(__bg_config = {"code": 0xAE1B, "interceptor": undefined, "
 						
 						delete __bg_packet;
 					}else array_push(__bg_buffer_array, __bg_packet);
-		        }else{
+		        }
+				else{
 					bgWarn("Message", __bg_msg_id,"not in protocol");
 					
 					var __bg_buffer = _bg_read_buffers[__bg_sender_id];
@@ -1047,8 +1016,9 @@ function bgProtoBuild(__bg_config = {"code": 0xAE1B, "interceptor": undefined, "
 		if(__bg_remaining)
 		{
 			_bg_read_buffers[__bg_sender_id] = __bg_read_buffer;
-			if(__bg_id != -1) bgWarn("Trailing", __bg_remaining, "(bytes) detected after read from", bg_msg_index[__bg_id].bg_name, "onward");
-		}else {
+			if(__bg_id != -1) bgWarn("Trailing", __bg_remaining, "(bytes) detected after read from", _bg_msg_array[__bg_id].bg_name, "onward");
+		}
+		else {
 			var __bg_buffer = _bg_read_buffers[__bg_sender_id];
 			if(__bg_buffer != undefined)
 			{
@@ -1083,9 +1053,9 @@ function bgProtoBuild(__bg_config = {"code": 0xAE1B, "interceptor": undefined, "
 		switch(__bg_count)
 		{
 			case 0:
-				__bg_buff		= bgNewBuffer;
-				__bg_msg_name	= bg_msg_current;
-				__bg_size		+= bgGetMsgSize(__bg_msg_name);
+				__bg_buff			= bgNewBuffer;
+				__bg_msg_name		= bg_msg_current;
+				__bg_size			+= bg_msg_specs[$ __bg_msg_name].bg_size;
 				break;
 			case 1:
 				var __bg_input		= argument[0];
@@ -1097,27 +1067,28 @@ function bgProtoBuild(__bg_config = {"code": 0xAE1B, "interceptor": undefined, "
 					__bg_buff		= __bg_input == bgWriteBuffer? _bg_write_buffer: __bg_input;
 					__bg_msg_name	= bg_msg_current;
 				}
-				__bg_size			+= bgGetMsgSize(__bg_msg_name);
+				__bg_size			+= bg_msg_specs[$ __bg_msg_name].bg_size;
 				break;
 			case 2:
 				__bg_buff			= argument[0] == bgWriteBuffer? _bg_write_buffer: argument[0];
 				__bg_msg_name		= argument[1] == "" ? bg_msg_current: argument[1];
-				__bg_size			+= bgGetMsgSize(__bg_msg_name);
+				__bg_size			+= bg_msg_specs[$ __bg_msg_name].bg_size;
 				break;
 			default:
 				__bg_buff			= argument[0] == bgWriteBuffer? _bg_write_buffer: argument[0];
-				for(var i = 1; i < __bg_count; ++i) __bg_size += bgGetMsgSize(argument[i]);		
+				for(var i = 1; i < __bg_count; ++i) __bg_size += bg_msg_specs[$ argument[i]].bg_size;
 		}
 		
-		if(__bg_buff != bgNewBuffer) buffer_resize(__bg_buff, __bg_size + 4);
-		else __bg_buff = buffer_create(__bg_size + 4, buffer_fixed, 1);
+		//Must increment size by 2
+		if(__bg_buff != bgNewBuffer) buffer_resize(__bg_buff, __bg_size + 6);
+		else __bg_buff = buffer_create(__bg_size + 6, buffer_fixed, 1);
 		
 		buffer_seek(__bg_buff, buffer_seek_start, 0);
 		buffer_write(__bg_buff, buffer_u16, bg_proto_code);
-		buffer_write(__bg_buff, buffer_u16, __bg_size);
+		buffer_write(__bg_buff, buffer_u16, __bg_size + 2);
 		
 		//If the protomessage only contains a msg id simply add it.
-		if(__bg_size == 2) buffer_write(__bg_buff, buffer_u16, bg_msg_specs[$ __bg_msg_name].bg_id);
+		if(__bg_size == 0) buffer_write(__bg_buff, buffer_u16, bg_msg_specs[$ __bg_msg_name].bg_id);
 		
 		bg_msg_current = __bg_msg_name;
 		
@@ -1149,7 +1120,7 @@ function bgProtoBuild(__bg_config = {"code": 0xAE1B, "interceptor": undefined, "
 			return self;
 		}
 		var __bg_size = 0;
-		for(var i = 1; i < argument_count; ++i) __bg_size += bgGetMsgSize(argument[i]);
+		for(var i = 1; i < argument_count; ++i) __bg_size += bg_msg_specs[$ argument[i]].bg_size + 2;
 		buffer_resize(__bg_buff, buffer_get_size(__bg_buff) + __bg_size);
 		buffer_poke(__bg_buff, 2, buffer_u16, buffer_peek(__bg_buff, 2, buffer_u16) + __bg_size);
 		return self;
@@ -1188,7 +1159,7 @@ function bgProtoBuild(__bg_config = {"code": 0xAE1B, "interceptor": undefined, "
 			return self;
 		}
 		var __bg_size = 0;
-		for(var i = 0; i < argument_count; ++i) __bg_size += bgGetMsgSize(argument[i]);
+		for(var i = 0; i < argument_count; ++i) __bg_size += bg_msg_specs[$ argument[i]].bg_size + 2;
 		buffer_resize(__bg_buff, __bg_size + 4);
 		buffer_seek(__bg_buff, buffer_seek_start, 0);
 		buffer_write(__bg_buff, buffer_u16, bg_proto_code);
@@ -1202,8 +1173,7 @@ function bgProtoBuild(__bg_config = {"code": 0xAE1B, "interceptor": undefined, "
 	static bgProtoBuildCleanup		= function()
 	{
 		delete bg_msg_specs
-		
-		bg_msg_index = undefined;
+		_bg_msg_array = undefined;
 		
 		buffer_delete(_bg_write_buffer);
 		
@@ -1277,7 +1247,7 @@ function bgProtoBuild(__bg_config = {"code": 0xAE1B, "interceptor": undefined, "
 			return false;
 		}
 		
-		bg_msg_index = [];
+		for(var i = 0; i < 65535; ++i) _bg_msg_array[i] = undefined;
 		
 		for(var i = 0, a = variable_struct_get_names(bg_msg_specs), s = array_length(a); i < s; ++i)
 		{
@@ -1285,7 +1255,7 @@ function bgProtoBuild(__bg_config = {"code": 0xAE1B, "interceptor": undefined, "
 			m = bg_msg_specs[$ a[i]],
 			c = m.bg_callback_str;
 			
-			bg_msg_index[m.bg_id] = m;
+			_bg_msg_array[m.bg_id] = m;
 			
 			if(c != "") m.bg_callback = asset_get_index(c);
 			else m.bg_callback = -1;
@@ -1325,17 +1295,26 @@ function bgProtoBuild(__bg_config = {"code": 0xAE1B, "interceptor": undefined, "
 			bg_hash = __bg_hash;
 			return self;	
 		}
-		var __bg_hash_array = [];
-		for(var i = 0; i < bg_size; ++i)
+		
+		var 
+		__bg_specs		= variable_struct_get_names(bg_msg_specs),
+		__bg_hash_array = [];
+		
+		array_sort(__bg_specs, true);
+		
+		for(var i = array_length(__bg_specs) - 1; i >= 0; --i)
 		{
-			var __bg_msg = bg_msg_index[i];
+			var __bg_msg	= bg_msg_specs[$ __bg_specs[i]];
+			
 			array_push(__bg_hash_array, i, __bg_msg.bg_id, __bg_msg.bg_name);
-			for(var o = 0, s = __bg_msg.bg_value; o < s; ++o)
+			
+			for(var o = __bg_msg.bg_value - 1; o >= 0; --o)
 			{
 				var __bg_msg_spec = __bg_msg.bg_specs[o];
 				array_push(__bg_hash_array, __bg_msg_spec.bg_name, __bg_msg_spec.bg_type, __bg_msg_spec.bg_default);
 			}
 		}
+		
 		bg_hash = sha1_string_utf8(json_stringify(__bg_hash_array));
 		__bg_hash_array = undefined;
 		return self;	
